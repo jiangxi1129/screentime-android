@@ -19,9 +19,14 @@ object Reporter {
     const val SERVER_URL = "https://xixiclaire.top/api/screentime/report"
     private const val TAG = "ScreentimeReporter"
 
+    /** Last error message, or null on success. Exposed so the UI can show it. */
+    @Volatile var lastError: String? = null
+        private set
+
     fun send(ctx: Context, apps: List<UsageReader.AppUsage>): Boolean {
         if (apps.isEmpty()) {
             Log.i(TAG, "no apps to report")
+            lastError = "empty app list"
             return true
         }
         return try {
@@ -53,9 +58,12 @@ object Reporter {
                 ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
             Log.i(TAG, "POST /report → $code $resp")
             conn.disconnect()
-            code in 200..299
+            val ok = code in 200..299
+            lastError = if (ok) null else "HTTP $code: ${resp.take(200)}"
+            ok
         } catch (e: Exception) {
             Log.e(TAG, "report failed", e)
+            lastError = "${e.javaClass.simpleName}: ${e.message ?: "no message"}"
             false
         }
     }

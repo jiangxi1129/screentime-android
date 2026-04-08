@@ -85,17 +85,19 @@ class MainActivity : AppCompatActivity() {
                 Thread {
                     val report = UsageReader.collect(applicationContext)
                     val ok = Reporter.send(applicationContext, report)
+                    val err = Reporter.lastError
                     val now = System.currentTimeMillis()
                     getSharedPreferences(AlarmReceiver.PREFS, Context.MODE_PRIVATE)
                         .edit()
                         .putLong(AlarmReceiver.KEY_LAST_REPORT_MS, now)
                         .putBoolean(AlarmReceiver.KEY_LAST_REPORT_OK, ok)
                         .putInt(AlarmReceiver.KEY_LAST_REPORT_COUNT, report.size)
+                        .putString(AlarmReceiver.KEY_LAST_ERROR, if (ok) null else err)
                         .apply()
                     runOnUiThread {
                         refresh(
                             extra = if (ok) "✅ 立刻上报成功 (${report.size} 个 app)"
-                            else "❌ 立刻上报失败，看日志"
+                            else "❌ 失败: ${err ?: "unknown"}"
                         )
                     }
                 }.start()
@@ -147,6 +149,7 @@ class MainActivity : AppCompatActivity() {
         val lastMs = prefs.getLong(AlarmReceiver.KEY_LAST_REPORT_MS, 0L)
         val lastOk = prefs.getBoolean(AlarmReceiver.KEY_LAST_REPORT_OK, false)
         val lastCount = prefs.getInt(AlarmReceiver.KEY_LAST_REPORT_COUNT, 0)
+        val lastError = prefs.getString(AlarmReceiver.KEY_LAST_ERROR, null)
 
         val sb = StringBuilder()
         sb.append("服务器: ").append(Reporter.SERVER_URL).append("\n")
@@ -161,6 +164,9 @@ class MainActivity : AppCompatActivity() {
                 .append(" (").append(ageMin).append(" 分钟前, ")
                 .append(lastCount).append(" 个 app)")
                 .append("\n")
+            if (!lastOk && lastError != null) {
+                sb.append("错误: ").append(lastError).append("\n")
+            }
         } else {
             sb.append("上次上报: 从未\n")
         }

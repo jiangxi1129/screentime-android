@@ -45,14 +45,16 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         val apps = UsageReader.collect(context)
         val ok = Reporter.send(context, apps)
+        val err = Reporter.lastError
         val now = System.currentTimeMillis()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_LAST_REPORT_MS, now)
             .putBoolean(KEY_LAST_REPORT_OK, ok)
             .putInt(KEY_LAST_REPORT_COUNT, apps.size)
+            .putString(KEY_LAST_ERROR, if (ok) null else err)
             .apply()
-        Log.i(TAG, "report ${if (ok) "ok" else "fail"} (${apps.size} apps)")
+        Log.i(TAG, "report ${if (ok) "ok" else "fail"} (${apps.size} apps) err=$err")
     }
 
     companion object {
@@ -61,6 +63,7 @@ class AlarmReceiver : BroadcastReceiver() {
         const val KEY_LAST_REPORT_MS = "last_report_ms"
         const val KEY_LAST_REPORT_OK = "last_report_ok"
         const val KEY_LAST_REPORT_COUNT = "last_report_count"
+        const val KEY_LAST_ERROR = "last_error"
         const val ACTION_REPORT = "top.xixiclaire.screentime.REPORT"
         private const val REQUEST_CODE = 9101
         const val INTERVAL_MS = 5L * 60 * 1000   // 5 minutes
