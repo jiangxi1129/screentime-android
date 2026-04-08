@@ -94,10 +94,13 @@ class MainActivity : AppCompatActivity() {
                         .putInt(AlarmReceiver.KEY_LAST_REPORT_COUNT, report.size)
                         .putString(AlarmReceiver.KEY_LAST_ERROR, if (ok) null else err)
                         .apply()
+                    val via = Reporter.lastEndpoint
                     runOnUiThread {
                         refresh(
-                            extra = if (ok) "✅ 立刻上报成功 (${report.size} 个 app)"
-                            else "❌ 失败: ${err ?: "unknown"}"
+                            extra = if (ok)
+                                "✅ 立刻上报成功 (${report.size} 个 app)\n通道: ${via ?: "?"}"
+                            else
+                                "❌ 失败: ${err ?: "unknown"}"
                         )
                     }
                 }.start()
@@ -152,7 +155,7 @@ class MainActivity : AppCompatActivity() {
         val lastError = prefs.getString(AlarmReceiver.KEY_LAST_ERROR, null)
 
         val sb = StringBuilder()
-        sb.append("服务器: ").append(Reporter.SERVER_URL).append("\n")
+        sb.append("通道: ").append(Reporter.ENDPOINTS.size).append(" 个候选 (HTTP优先,HTTPS兜底)\n")
         sb.append("权限: ").append(if (granted) "✅ 已授权" else "❌ 未授权").append("\n")
         sb.append("定时: ").append(if (scheduled) "✅ 已排定 (5分钟周期)" else "未启动").append("\n")
         if (lastMs > 0) {
