@@ -23,7 +23,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        try {
+            buildUi()
+        } catch (t: Throwable) {
+            // Last-resort visible error so we don't silently crash
+            val tv = TextView(this).apply {
+                text = "启动失败:\n${t.javaClass.simpleName}: ${t.message}\n\n${t.stackTraceToString().take(800)}"
+                textSize = 12f
+                setPadding(40, 40, 40, 40)
+            }
+            setContentView(ScrollView(this).apply { addView(tv) })
+        }
+    }
 
+    private fun buildUi() {
         val pad = (resources.displayMetrics.density * 24).toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -119,7 +132,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        refresh()
+        try { refresh() } catch (_: Throwable) { }
     }
 
     private fun spacer(dp: Int): TextView = TextView(this).apply {

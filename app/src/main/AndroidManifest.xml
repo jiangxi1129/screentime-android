@@ -14,7 +14,7 @@
     <application
         android:label="Screentime"
         android:icon="@android:drawable/ic_menu_recent_history"
-        android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
         android:allowBackup="false"
         tools:targetApi="31">
 
