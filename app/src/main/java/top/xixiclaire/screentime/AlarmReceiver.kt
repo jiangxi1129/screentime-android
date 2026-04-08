@@ -65,7 +65,7 @@ class AlarmReceiver : BroadcastReceiver() {
         private const val REQUEST_CODE = 9101
         const val INTERVAL_MS = 5L * 60 * 1000   // 5 minutes
 
-        private fun pendingIntent(ctx: Context, flags: Int): PendingIntent {
+        private fun pendingIntent(ctx: Context, flags: Int): PendingIntent? {
             val intent = Intent(ctx, AlarmReceiver::class.java).apply {
                 action = ACTION_REPORT
             }
@@ -78,7 +78,7 @@ class AlarmReceiver : BroadcastReceiver() {
             val pi = pendingIntent(
                 ctx,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
+            ) ?: return
             val triggerAt = System.currentTimeMillis() + INTERVAL_MS
             try {
                 // setAndAllowWhileIdle works through Doze, no special permission required
