@@ -1,0 +1,115 @@
+package top.xixiclaire.screentime
+
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.os.PowerManager
+import android.util.Log
+
+/**
+ * Wakes up every 5 minutes via AlarmManager, reads UsageStats, POSTs to the
+ * server, and re-schedules the next alarm. No persistent notification needed.
+ *
+ * On vivo / OPPO / Xiaomi this approach is much more reliable than WorkManager
+ * but still requires the user to add the app to "auto-start whitelist"
+ * (自启动管理) AND "battery whitelist" (电池/省电管理).
+ *
+ * If the user force-stops the app, alarms are cancelled — opening MainActivity
+ * once will re-arm them.
+ */
+class AlarmReceiver : BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        Log.i(TAG, "alarm fired action=${intent.action}")
+        // Acquire a brief wakelock so the device doesn't doze mid-POST
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "screentime:alarm")
+        try {
+            wl.acquire(30_000L)
+            doWork(context)
+        } catch (t: Throwable) {
+            Log.e(TAG, "work failed", t)
+        } finally {
+            // ALWAYS schedule next alarm, even on failure — otherwise we lose forever
+            scheduleNext(context)
+            if (wl.isHeld) wl.release()
+        }
+    }
+
+    private fun doWork(context: Context) {
+        if (!MainActivity.hasUsageAccess(context)) {
+            Log.w(TAG, "usage access not granted, skipping")
+            return
+        }
+        val apps = UsageReader.collect(context)
+        val ok = Reporter.send(context, apps)
+        val now = System.currentTimeMillis()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_LAST_REPORT_MS, now)
+            .putBoolean(KEY_LAST_REPORT_OK, ok)
+            .putInt(KEY_LAST_REPORT_COUNT, apps.size)
+            .apply()
+        Log.i(TAG, "report ${if (ok) "ok" else "fail"} (${apps.size} apps)")
+    }
+
+    companion object {
+        private const val TAG = "ScreentimeAlarm"
+        const val PREFS = "screentime_state"
+        const val KEY_LAST_REPORT_MS = "last_report_ms"
+        const val KEY_LAST_REPORT_OK = "last_report_ok"
+        const val KEY_LAST_REPORT_COUNT = "last_report_count"
+        const val ACTION_REPORT = "top.xixiclaire.screentime.REPORT"
+        private const val REQUEST_CODE = 9101
+        const val INTERVAL_MS = 5L * 60 * 1000   // 5 minutes
+
+        private fun pendingIntent(ctx: Context, flags: Int): PendingIntent {
+            val intent = Intent(ctx, AlarmReceiver::class.java).apply {
+                action = ACTION_REPORT
+            }
+            return PendingIntent.getBroadcast(ctx, REQUEST_CODE, intent, flags)
+        }
+
+        /** Schedule the next single-shot alarm 5 minutes from now. */
+        fun scheduleNext(ctx: Context) {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val pi = pendingIntent(
+                ctx,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val triggerAt = System.currentTimeMillis() + INTERVAL_MS
+            try {
+                // setAndAllowWhileIdle works through Doze, no special permission required
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                Log.i(TAG, "next alarm scheduled in ${INTERVAL_MS / 1000}s")
+            } catch (e: SecurityException) {
+                am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            }
+        }
+
+        /** Cancel any pending alarm. */
+        fun cancel(ctx: Context) {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val pi = pendingIntent(
+                ctx,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+            )
+            if (pi != null) {
+                am.cancel(pi)
+                pi.cancel()
+                Log.i(TAG, "alarm cancelled")
+            }
+        }
+
+        /** Is there a pending alarm right now? */
+        fun isScheduled(ctx: Context): Boolean {
+            val pi = pendingIntent(
+                ctx,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+            )
+            return pi != null
+        }
+    }
+}
