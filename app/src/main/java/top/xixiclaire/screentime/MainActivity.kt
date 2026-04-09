@@ -3,6 +3,7 @@ package top.xixiclaire.screentime
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,11 +21,13 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
+    private var screenReceiver: ScreenReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             buildUi()
+            registerScreenReceiver()
         } catch (t: Throwable) {
             // Last-resort visible error so we don't silently crash
             val tv = TextView(this).apply {
@@ -138,6 +141,22 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         try { refresh() } catch (_: Throwable) { }
+    }
+
+    override fun onDestroy() {
+        screenReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: Throwable) { }
+        }
+        super.onDestroy()
+    }
+
+    private fun registerScreenReceiver() {
+        screenReceiver = ScreenReceiver()
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        registerReceiver(screenReceiver, filter)
     }
 
     private fun spacer(dp: Int): TextView = TextView(this).apply {

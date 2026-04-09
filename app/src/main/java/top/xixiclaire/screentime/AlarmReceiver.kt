@@ -55,6 +55,10 @@ class AlarmReceiver : BroadcastReceiver() {
             .putString(KEY_LAST_ERROR, if (ok) null else err)
             .apply()
         Log.i(TAG, "report ${if (ok) "ok" else "fail"} (${apps.size} apps) err=$err")
+
+        // Send heartbeat as fallback (in case ScreenReceiver was killed)
+        val foregroundApp = ScreenReceiver.getForegroundApp(context)
+        HeartbeatReporter.send(foregroundApp, true, "android-${android.os.Build.MODEL}")
     }
 
     companion object {
