@@ -7,13 +7,17 @@ import android.content.pm.PackageManager
 import java.util.Calendar
 
 /**
- * Reads today's foreground app usage from UsageStatsManager.
+ * Reads today's foreground app usage from UsageStatsManager via queryEvents().
  *
- * IMPORTANT: queryUsageStats() returns daily buckets where totalTimeInForeground
- * is the FULL bucket value, even if the bucket starts before our query range.
- * This caused yesterday's usage to be counted as today's. We instead use
- * queryEvents() to manually compute foreground intervals strictly within
- * [todayMidnight, now].
+ * Key design decisions:
+ * - We track ACTIVITY_RESUMED as "entered foreground" and ACTIVITY_PAUSED or
+ *   ACTIVITY_STOPPED as "left foreground". WeChat's floating windows and
+ *   mini-programs often skip PAUSED and go straight to STOPPED, so we must
+ *   handle both.
+ * - If we see two consecutive RESUMED events for the same package without an
+ *   intervening PAUSED/STOPPED, we close the first session at the second
+ *   RESUMED timestamp (defensive, handles edge cases).
+ * - Anything still in foreground at query time counts up to now.
  *
  * Filters out apps with less than 60 seconds of foreground time.
  */
@@ -25,7 +29,7 @@ object UsageReader {
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val pm = ctx.packageManager
 
-        // Today midnight (device timezone) → now
+        // Today midnight (device timezone) -> now
         val cal = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
@@ -35,8 +39,8 @@ object UsageReader {
         val start = cal.timeInMillis
         val end = System.currentTimeMillis()
 
-        val totals = HashMap<String, Long>()      // package → ms accumulated today
-        val foregroundSince = HashMap<String, Long>() // package → ms when it entered foreground
+        val totals = HashMap<String, Long>()          // package -> ms accumulated today
+        val foregroundSince = HashMap<String, Long>()  // package -> ms when it entered foreground
 
         val events = usm.queryEvents(start, end) ?: return emptyList()
         val ev = UsageEvents.Event()
@@ -44,14 +48,31 @@ object UsageReader {
             events.getNextEvent(ev)
             val pkg = ev.packageName ?: continue
             val ts = ev.timeStamp
+
             when (ev.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED, // = MOVE_TO_FOREGROUND on older APIs
-                UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                    // Clamp to start in case event is exactly at boundary
+                // Entered foreground
+                UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    // If already in foreground (consecutive RESUMED without PAUSED),
+                    // close the previous session first
+                    val prev = foregroundSince[pkg]
+                    if (prev != null && ts > prev) {
+                        totals[pkg] = (totals[pkg] ?: 0L) + (ts - prev)
+                    }
                     foregroundSince[pkg] = if (ts < start) start else ts
                 }
-                UsageEvents.Event.ACTIVITY_PAUSED, // = MOVE_TO_BACKGROUND on older APIs
-                UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+
+                // Left foreground — PAUSED is the standard signal
+                UsageEvents.Event.ACTIVITY_PAUSED -> {
+                    val from = foregroundSince.remove(pkg)
+                    if (from != null && ts > from) {
+                        totals[pkg] = (totals[pkg] ?: 0L) + (ts - from)
+                    }
+                }
+
+                // Left foreground — STOPPED is the fallback signal.
+                // WeChat floating windows, mini-programs, and vivo split-screen
+                // often skip PAUSED and emit STOPPED directly.
+                UsageEvents.Event.ACTIVITY_STOPPED -> {
                     val from = foregroundSince.remove(pkg)
                     if (from != null && ts > from) {
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - from)
@@ -59,6 +80,7 @@ object UsageReader {
                 }
             }
         }
+
         // Anything still in foreground at the end of the window: count up to now
         for ((pkg, from) in foregroundSince) {
             if (end > from) {
