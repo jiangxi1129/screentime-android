@@ -22,12 +22,14 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private var screenReceiver: ScreenReceiver? = null
+    private var connectivityReceiver: ConnectivityReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             buildUi()
             registerScreenReceiver()
+            connectivityReceiver = ConnectivityReceiver.registerDynamic(this)
         } catch (t: Throwable) {
             // Last-resort visible error so we don't silently crash
             val tv = TextView(this).apply {
@@ -145,6 +147,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         screenReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: Throwable) { }
+        }
+        connectivityReceiver?.let {
             try { unregisterReceiver(it) } catch (_: Throwable) { }
         }
         super.onDestroy()

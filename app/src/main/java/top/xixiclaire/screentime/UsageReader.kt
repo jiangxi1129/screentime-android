@@ -7,19 +7,21 @@ import android.content.pm.PackageManager
 import java.util.Calendar
 
 /**
- * Reads today's foreground app usage from UsageStatsManager via queryEvents().
+ * Reads today's foreground app usage via queryEvents().
  *
- * Key design decisions:
- * - We track ACTIVITY_RESUMED as "entered foreground" and ACTIVITY_PAUSED or
- *   ACTIVITY_STOPPED as "left foreground". WeChat's floating windows and
- *   mini-programs often skip PAUSED and go straight to STOPPED, so we must
- *   handle both.
- * - If we see two consecutive RESUMED events for the same package without an
- *   intervening PAUSED/STOPPED, we close the first session at the second
- *   RESUMED timestamp (defensive, handles edge cases).
- * - Anything still in foreground at query time counts up to now.
- *
- * Filters out apps with less than 60 seconds of foreground time.
+ * Design:
+ * - ACTIVITY_RESUMED = entered foreground, ACTIVITY_PAUSED = left foreground.
+ * - ACTIVITY_STOPPED is NOT used for timing — it fires for background services
+ *   and system components that were never truly in the foreground, causing
+ *   massive over-counting. WeChat mini-programs that skip PAUSED will lose
+ *   some time, but that's far better than 500-min ghost entries.
+ * - Cross-midnight: if the FIRST event for a package is PAUSED (no prior
+ *   RESUMED today), the app was in foreground since before midnight. We count
+ *   from midnight to that PAUSED. Only applies once per package, and only for
+ *   PAUSED (not STOPPED).
+ * - Consecutive RESUMED without PAUSED: close previous session defensively.
+ * - Apps still in foreground at query time: count up to now.
+ * - Filter out < 60 seconds.
  */
 object UsageReader {
 
@@ -29,7 +31,6 @@ object UsageReader {
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val pm = ctx.packageManager
 
-        // Today midnight (device timezone) -> now
         val cal = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
@@ -39,9 +40,9 @@ object UsageReader {
         val start = cal.timeInMillis
         val end = System.currentTimeMillis()
 
-        val totals = HashMap<String, Long>()          // package -> ms accumulated today
-        val foregroundSince = HashMap<String, Long>()  // package -> ms when it entered foreground
-        val midnightFallbackUsed = HashSet<String>()   // packages where we applied midnight fallback
+        val totals = HashMap<String, Long>()
+        val foregroundSince = HashMap<String, Long>()
+        val seen = HashSet<String>()  // packages we've seen any event for
 
         val events = usm.queryEvents(start, end) ?: return emptyList()
         val ev = UsageEvents.Event()
@@ -49,12 +50,11 @@ object UsageReader {
             events.getNextEvent(ev)
             val pkg = ev.packageName ?: continue
             val ts = ev.timeStamp
+            val firstSeen = pkg !in seen
+            seen.add(pkg)
 
             when (ev.eventType) {
-                // Entered foreground
                 UsageEvents.Event.ACTIVITY_RESUMED -> {
-                    // If already in foreground (consecutive RESUMED without PAUSED),
-                    // close the previous session first
                     val prev = foregroundSince[pkg]
                     if (prev != null && ts > prev) {
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - prev)
@@ -62,36 +62,28 @@ object UsageReader {
                     foregroundSince[pkg] = if (ts < start) start else ts
                 }
 
-                // Left foreground — PAUSED is the standard signal
                 UsageEvents.Event.ACTIVITY_PAUSED -> {
                     val from = foregroundSince.remove(pkg)
                     if (from != null && ts > from) {
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - from)
-                    } else if (from == null && pkg !in midnightFallbackUsed) {
-                        // App was already in foreground at midnight (opened yesterday,
-                        // no RESUMED in today's window). Count from midnight. Only once.
-                        midnightFallbackUsed.add(pkg)
+                    } else if (from == null && firstSeen) {
+                        // Cross-midnight: app was in foreground since before 00:00
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - start)
                     }
                 }
 
-                // Left foreground — STOPPED is the fallback signal.
-                // WeChat floating windows, mini-programs, and vivo split-screen
-                // often skip PAUSED and emit STOPPED directly.
+                // ACTIVITY_STOPPED: only close an existing tracked session.
+                // Do NOT apply midnight fallback — STOPPED fires for tons of
+                // background system components that were never in foreground.
                 UsageEvents.Event.ACTIVITY_STOPPED -> {
                     val from = foregroundSince.remove(pkg)
                     if (from != null && ts > from) {
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - from)
-                    } else if (from == null && pkg !in midnightFallbackUsed) {
-                        // Same cross-midnight fix as PAUSED above
-                        midnightFallbackUsed.add(pkg)
-                        totals[pkg] = (totals[pkg] ?: 0L) + (ts - start)
                     }
                 }
             }
         }
 
-        // Anything still in foreground at the end of the window: count up to now
         for ((pkg, from) in foregroundSince) {
             if (end > from) {
                 totals[pkg] = (totals[pkg] ?: 0L) + (end - from)
@@ -101,7 +93,7 @@ object UsageReader {
         val result = ArrayList<AppUsage>()
         for ((pkg, ms) in totals) {
             val sec = ms / 1000
-            if (sec < 60) continue   // filter < 1 minute
+            if (sec < 60) continue
             val label = try {
                 val ai = pm.getApplicationInfo(pkg, 0)
                 pm.getApplicationLabel(ai).toString()
