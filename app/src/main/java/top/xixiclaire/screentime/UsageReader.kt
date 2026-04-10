@@ -41,6 +41,7 @@ object UsageReader {
 
         val totals = HashMap<String, Long>()          // package -> ms accumulated today
         val foregroundSince = HashMap<String, Long>()  // package -> ms when it entered foreground
+        val midnightFallbackUsed = HashSet<String>()   // packages where we applied midnight fallback
 
         val events = usm.queryEvents(start, end) ?: return emptyList()
         val ev = UsageEvents.Event()
@@ -66,6 +67,11 @@ object UsageReader {
                     val from = foregroundSince.remove(pkg)
                     if (from != null && ts > from) {
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - from)
+                    } else if (from == null && pkg !in midnightFallbackUsed) {
+                        // App was already in foreground at midnight (opened yesterday,
+                        // no RESUMED in today's window). Count from midnight. Only once.
+                        midnightFallbackUsed.add(pkg)
+                        totals[pkg] = (totals[pkg] ?: 0L) + (ts - start)
                     }
                 }
 
@@ -76,6 +82,10 @@ object UsageReader {
                     val from = foregroundSince.remove(pkg)
                     if (from != null && ts > from) {
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - from)
+                    } else if (from == null && pkg !in midnightFallbackUsed) {
+                        // Same cross-midnight fix as PAUSED above
+                        midnightFallbackUsed.add(pkg)
+                        totals[pkg] = (totals[pkg] ?: 0L) + (ts - start)
                     }
                 }
             }

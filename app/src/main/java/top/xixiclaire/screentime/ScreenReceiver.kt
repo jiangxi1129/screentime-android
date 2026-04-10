@@ -43,7 +43,7 @@ class ScreenReceiver : BroadcastReceiver() {
             try {
                 val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
                 val now = System.currentTimeMillis()
-                val events = usm.queryEvents(now - 5000, now) ?: return null
+                val events = usm.queryEvents(now - 30_000, now) ?: return null
                 val ev = UsageEvents.Event()
                 var lastApp: String? = null
                 while (events.hasNextEvent()) {

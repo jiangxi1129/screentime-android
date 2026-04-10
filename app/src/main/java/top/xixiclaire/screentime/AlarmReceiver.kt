@@ -56,9 +56,43 @@ class AlarmReceiver : BroadcastReceiver() {
             .apply()
         Log.i(TAG, "report ${if (ok) "ok" else "fail"} (${apps.size} apps) err=$err")
 
-        // Send heartbeat as fallback (in case ScreenReceiver was killed)
-        val foregroundApp = ScreenReceiver.getForegroundApp(context)
-        HeartbeatReporter.send(foregroundApp, true, "android-${android.os.Build.MODEL}")
+        // Send heartbeat as fallback (in case ScreenReceiver was killed by vivo)
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val screenOn = pm.isInteractive  // true if screen is on
+            val foregroundApp = if (screenOn) getForegroundAppWide(context) else null
+            val hbOk = HeartbeatReporter.send(foregroundApp, screenOn, "android-${android.os.Build.MODEL}")
+            Log.i(TAG, "heartbeat ${if (hbOk) "ok" else "fail"}: app=$foregroundApp screen=$screenOn")
+        } catch (e: Exception) {
+            Log.w(TAG, "heartbeat error: ${e.message}")
+        }
+    }
+
+    /** Query foreground app using a wider window (last 60s) for reliability. */
+    private fun getForegroundAppWide(context: Context): String? {
+        try {
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE)
+                as android.app.usage.UsageStatsManager
+            val now = System.currentTimeMillis()
+            val events = usm.queryEvents(now - 60_000, now) ?: return null
+            val ev = android.app.usage.UsageEvents.Event()
+            var lastApp: String? = null
+            while (events.hasNextEvent()) {
+                events.getNextEvent(ev)
+                if (ev.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
+                    lastApp = ev.packageName
+                }
+            }
+            if (lastApp != null) {
+                return try {
+                    val ai = context.packageManager.getApplicationInfo(lastApp, 0)
+                    context.packageManager.getApplicationLabel(ai).toString()
+                } catch (_: Exception) { lastApp }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "getForegroundAppWide: ${e.message}")
+        }
+        return null
     }
 
     companion object {
