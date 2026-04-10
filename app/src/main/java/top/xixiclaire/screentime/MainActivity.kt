@@ -142,7 +142,38 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        try { refresh() } catch (_: Throwable) { }
+        try {
+            refresh()
+            // Auto-recover: if alarm should be running but last report was >10 min ago,
+            // re-arm the alarm (vivo may have killed it)
+            autoRecoverAlarm()
+        } catch (_: Throwable) { }
+    }
+
+    private fun autoRecoverAlarm() {
+        if (!hasUsageAccess(this)) return
+        val prefs = getSharedPreferences(AlarmReceiver.PREFS, Context.MODE_PRIVATE)
+        val lastMs = prefs.getLong(AlarmReceiver.KEY_LAST_REPORT_MS, 0L)
+        val ageMs = System.currentTimeMillis() - lastMs
+        // If last report was >10 minutes ago, re-arm alarm + do immediate report
+        if (lastMs > 0 && ageMs > 10 * 60 * 1000) {
+            AlarmReceiver.scheduleNext(applicationContext)
+            ConnectivityReceiver.ensureRegistered(applicationContext)
+            Thread {
+                try {
+                    val apps = UsageReader.collect(applicationContext)
+                    val ok = Reporter.send(applicationContext, apps)
+                    val now = System.currentTimeMillis()
+                    prefs.edit()
+                        .putLong(AlarmReceiver.KEY_LAST_REPORT_MS, now)
+                        .putBoolean(AlarmReceiver.KEY_LAST_REPORT_OK, ok)
+                        .putInt(AlarmReceiver.KEY_LAST_REPORT_COUNT, apps.size)
+                        .putString(AlarmReceiver.KEY_LAST_ERROR, if (ok) null else Reporter.lastError)
+                        .apply()
+                    runOnUiThread { refresh(extra = if (ok) "✅ 自动恢复上报成功" else "❌ 恢复失败: ${Reporter.lastError}") }
+                } catch (_: Exception) { }
+            }.start()
+        }
     }
 
     override fun onDestroy() {
