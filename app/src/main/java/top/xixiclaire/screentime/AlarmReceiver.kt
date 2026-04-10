@@ -26,22 +26,24 @@ class AlarmReceiver : BroadcastReceiver() {
         // Acquire a brief wakelock so the device doesn't doze mid-POST
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "screentime:alarm")
+        var reportOk = false
         try {
             wl.acquire(30_000L)
-            doWork(context)
+            reportOk = doWork(context)
         } catch (t: Throwable) {
             Log.e(TAG, "work failed", t)
         } finally {
-            // ALWAYS schedule next alarm, even on failure — otherwise we lose forever
-            scheduleNext(context)
+            // If report failed (network down), retry in 1 minute instead of 5
+            scheduleNext(context, if (reportOk) INTERVAL_MS else RETRY_MS)
             if (wl.isHeld) wl.release()
         }
     }
 
-    private fun doWork(context: Context) {
+    /** @return true if report was sent successfully */
+    private fun doWork(context: Context): Boolean {
         if (!MainActivity.hasUsageAccess(context)) {
             Log.w(TAG, "usage access not granted, skipping")
-            return
+            return false
         }
         // Re-register network callback in case Activity was killed by vivo
         ConnectivityReceiver.ensureRegistered(context)
@@ -68,6 +70,7 @@ class AlarmReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             Log.w(TAG, "heartbeat error: ${e.message}")
         }
+        return ok
     }
 
     /** Query foreground app using a wider window (last 60s) for reliability. */
@@ -107,6 +110,7 @@ class AlarmReceiver : BroadcastReceiver() {
         const val ACTION_REPORT = "top.xixiclaire.screentime.REPORT"
         private const val REQUEST_CODE = 9101
         const val INTERVAL_MS = 5L * 60 * 1000   // 5 minutes
+        private const val RETRY_MS = 60L * 1000   // 1 minute (on failure)
 
         private fun pendingIntent(ctx: Context, flags: Int): PendingIntent? {
             val intent = Intent(ctx, AlarmReceiver::class.java).apply {
@@ -115,18 +119,17 @@ class AlarmReceiver : BroadcastReceiver() {
             return PendingIntent.getBroadcast(ctx, REQUEST_CODE, intent, flags)
         }
 
-        /** Schedule the next single-shot alarm 5 minutes from now. */
-        fun scheduleNext(ctx: Context) {
+        /** Schedule the next single-shot alarm. Default 5 min, or custom interval. */
+        fun scheduleNext(ctx: Context, intervalMs: Long = INTERVAL_MS) {
             val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val pi = pendingIntent(
                 ctx,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             ) ?: return
-            val triggerAt = System.currentTimeMillis() + INTERVAL_MS
+            val triggerAt = System.currentTimeMillis() + intervalMs
             try {
-                // setAndAllowWhileIdle works through Doze, no special permission required
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
-                Log.i(TAG, "next alarm scheduled in ${INTERVAL_MS / 1000}s")
+                Log.i(TAG, "next alarm scheduled in ${intervalMs / 1000}s")
             } catch (e: SecurityException) {
                 am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
             }
