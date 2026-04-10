@@ -1,37 +1,33 @@
 package top.xixiclaire.screentime
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.util.Log
 
 /**
- * Re-arms AlarmManager AND fires an immediate report+heartbeat when
- * connectivity is restored (e.g. Clash reconnected).
+ * Monitors network connectivity using the modern NetworkCallback API.
+ * When connectivity is restored, re-arms AlarmManager and fires an
+ * immediate report + heartbeat.
  *
- * On Android 7+ (API 24), CONNECTIVITY_CHANGE is NOT delivered to
- * manifest-registered receivers. So we also register dynamically from
- * MainActivity. The manifest entry still works on older devices.
+ * Replaces the old BroadcastReceiver approach which used deprecated
+ * activeNetworkInfo (returns null on Android 10+).
  */
-class ConnectivityReceiver : BroadcastReceiver() {
+class ConnectivityReceiver(private val context: Context) {
 
-    override fun onReceive(context: Context, intent: Intent) {
-        if (!MainActivity.hasUsageAccess(context)) return
+    private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private var registered = false
 
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        @Suppress("DEPRECATION")
-        val active = cm.activeNetworkInfo
-        @Suppress("DEPRECATION")
-        val connected = active != null && active.isConnected
+    private val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            Log.i(TAG, "network available, re-arming alarm + immediate report")
+            if (!MainActivity.hasUsageAccess(context)) return
 
-        if (connected) {
-            Log.i(TAG, "network restored, re-arming alarm + immediate report")
             AlarmReceiver.scheduleNext(context)
 
-            // Fire an immediate report+heartbeat in background
             Thread {
                 try {
                     val apps = UsageReader.collect(context)
@@ -44,17 +40,32 @@ class ConnectivityReceiver : BroadcastReceiver() {
                 }
             }.start()
         }
+
+        override fun onLost(network: Network) {
+            Log.i(TAG, "network lost")
+        }
+    }
+
+    fun register() {
+        if (registered) return
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        cm.registerNetworkCallback(request, callback)
+        registered = true
+        Log.i(TAG, "NetworkCallback registered")
+    }
+
+    fun unregister() {
+        if (!registered) return
+        try {
+            cm.unregisterNetworkCallback(callback)
+        } catch (_: Exception) { }
+        registered = false
+        Log.i(TAG, "NetworkCallback unregistered")
     }
 
     companion object {
         private const val TAG = "ScreentimeConnectivity"
-
-        fun registerDynamic(context: Context): ConnectivityReceiver {
-            val receiver = ConnectivityReceiver()
-            val filter = IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
-            context.applicationContext.registerReceiver(receiver, filter)
-            Log.i(TAG, "dynamic ConnectivityReceiver registered")
-            return receiver
-        }
     }
 }
