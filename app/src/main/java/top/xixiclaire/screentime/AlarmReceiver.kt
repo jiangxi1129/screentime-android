@@ -23,7 +23,6 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         Log.i(TAG, "alarm fired action=${intent.action}")
-        // Acquire a brief wakelock so the device doesn't doze mid-POST
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "screentime:alarm")
         var reportOk = false
@@ -33,8 +32,21 @@ class AlarmReceiver : BroadcastReceiver() {
         } catch (t: Throwable) {
             Log.e(TAG, "work failed", t)
         } finally {
-            // If report failed (network down), retry in 1 minute instead of 5
-            scheduleNext(context, if (reportOk) INTERVAL_MS else RETRY_MS)
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (reportOk) {
+                prefs.edit().putInt(KEY_CONSECUTIVE_FAILS, 0).apply()
+                scheduleNext(context, INTERVAL_MS)
+            } else {
+                val fails = prefs.getInt(KEY_CONSECUTIVE_FAILS, 0) + 1
+                prefs.edit().putInt(KEY_CONSECUTIVE_FAILS, fails).apply()
+                val retryMs = when {
+                    fails <= 3  -> RETRY_FAST_MS   // 1 min — just disconnected
+                    fails <= 6  -> INTERVAL_MS      // 5 min — normal pace
+                    else        -> RETRY_SLOW_MS    // 10 min — long offline, save battery
+                }
+                Log.i(TAG, "fail #$fails, next retry in ${retryMs / 1000}s")
+                scheduleNext(context, retryMs)
+            }
             if (wl.isHeld) wl.release()
         }
     }
@@ -108,9 +120,11 @@ class AlarmReceiver : BroadcastReceiver() {
         const val KEY_LAST_REPORT_COUNT = "last_report_count"
         const val KEY_LAST_ERROR = "last_error"
         const val ACTION_REPORT = "top.xixiclaire.screentime.REPORT"
+        const val KEY_CONSECUTIVE_FAILS = "consecutive_fails"
         private const val REQUEST_CODE = 9101
-        const val INTERVAL_MS = 5L * 60 * 1000   // 5 minutes
-        private const val RETRY_MS = 60L * 1000   // 1 minute (on failure)
+        const val INTERVAL_MS  = 5L * 60 * 1000   // 5 min — normal
+        private const val RETRY_FAST_MS = 60L * 1000   // 1 min — just went offline
+        private const val RETRY_SLOW_MS = 10L * 60 * 1000 // 10 min — long offline
 
         private fun pendingIntent(ctx: Context, flags: Int): PendingIntent? {
             val intent = Intent(ctx, AlarmReceiver::class.java).apply {
