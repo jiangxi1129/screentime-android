@@ -22,14 +22,14 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private var screenReceiver: ScreenReceiver? = null
-    private var connectivityMonitor: ConnectivityReceiver? = null
+    // ConnectivityReceiver is now a global singleton, no instance needed
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             buildUi()
             registerScreenReceiver()
-            connectivityMonitor = ConnectivityReceiver(applicationContext).also { it.register() }
+            ConnectivityReceiver.ensureRegistered(applicationContext)
         } catch (t: Throwable) {
             // Last-resort visible error so we don't silently crash
             val tv = TextView(this).apply {
@@ -149,7 +149,8 @@ class MainActivity : AppCompatActivity() {
         screenReceiver?.let {
             try { unregisterReceiver(it) } catch (_: Throwable) { }
         }
-        connectivityMonitor?.unregister()
+        // Don't unregister ConnectivityReceiver — it's a global singleton
+        // that should survive Activity destruction
         super.onDestroy()
     }
 

@@ -43,6 +43,8 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.w(TAG, "usage access not granted, skipping")
             return
         }
+        // Re-register network callback in case Activity was killed by vivo
+        ConnectivityReceiver.ensureRegistered(context)
         val apps = UsageReader.collect(context)
         val ok = Reporter.send(context, apps)
         val err = Reporter.lastError

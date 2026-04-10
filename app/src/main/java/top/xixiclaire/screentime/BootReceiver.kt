@@ -18,6 +18,7 @@ class BootReceiver : BroadcastReceiver() {
             "android.intent.action.QUICKBOOT_POWERON" -> {
                 if (MainActivity.hasUsageAccess(context)) {
                     AlarmReceiver.scheduleNext(context)
+                    ConnectivityReceiver.ensureRegistered(context)
                 }
             }
         }

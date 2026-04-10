@@ -9,63 +9,83 @@ import android.os.Build
 import android.util.Log
 
 /**
- * Monitors network connectivity using the modern NetworkCallback API.
- * When connectivity is restored, re-arms AlarmManager and fires an
+ * Global singleton that monitors network connectivity using NetworkCallback.
+ * When connectivity is restored (e.g. Clash VPN reconnected), fires an
  * immediate report + heartbeat.
  *
- * Replaces the old BroadcastReceiver approach which used deprecated
- * activeNetworkInfo (returns null on Android 10+).
+ * Registered from both MainActivity (on open) and AlarmReceiver (every 5 min),
+ * so it survives Activity being killed by vivo.
  */
-class ConnectivityReceiver(private val context: Context) {
+object ConnectivityReceiver {
 
-    private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    private var registered = false
+    private const val TAG = "ScreentimeConnectivity"
+    @Volatile private var registered = false
+    private var callback: ConnectivityManager.NetworkCallback? = null
 
-    private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            Log.i(TAG, "network available, re-arming alarm + immediate report")
-            if (!MainActivity.hasUsageAccess(context)) return
-
-            AlarmReceiver.scheduleNext(context)
-
-            Thread {
-                try {
-                    val apps = UsageReader.collect(context)
-                    Reporter.send(context, apps)
-                    val foreground = ScreenReceiver.getForegroundApp(context)
-                    HeartbeatReporter.send(foreground, true, "android-${Build.MODEL}")
-                    Log.i(TAG, "immediate report sent (${apps.size} apps)")
-                } catch (e: Exception) {
-                    Log.w(TAG, "immediate report failed: ${e.message}")
-                }
-            }.start()
-        }
-
-        override fun onLost(network: Network) {
-            Log.i(TAG, "network lost")
-        }
-    }
-
-    fun register() {
+    /**
+     * Ensure the NetworkCallback is registered. Safe to call multiple times —
+     * only the first call actually registers.
+     */
+    fun ensureRegistered(context: Context) {
         if (registered) return
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        cm.registerNetworkCallback(request, callback)
-        registered = true
-        Log.i(TAG, "NetworkCallback registered")
+        synchronized(this) {
+            if (registered) return
+            try {
+                val cm = context.applicationContext
+                    .getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val cb = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        Log.i(TAG, "network available, immediate report")
+                        val ctx = context.applicationContext
+                        if (!MainActivity.hasUsageAccess(ctx)) return
+
+                        AlarmReceiver.scheduleNext(ctx)
+
+                        Thread {
+                            try {
+                                val apps = UsageReader.collect(ctx)
+                                Reporter.send(ctx, apps)
+                                val foreground = ScreenReceiver.getForegroundApp(ctx)
+                                HeartbeatReporter.send(
+                                    foreground, true,
+                                    "android-${Build.MODEL}"
+                                )
+                                Log.i(TAG, "immediate report sent (${apps.size} apps)")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "immediate report failed: ${e.message}")
+                            }
+                        }.start()
+                    }
+
+                    override fun onLost(network: Network) {
+                        Log.i(TAG, "network lost")
+                    }
+                }
+                val request = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                cm.registerNetworkCallback(request, cb)
+                callback = cb
+                registered = true
+                Log.i(TAG, "NetworkCallback registered (global singleton)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to register NetworkCallback: ${e.message}")
+            }
+        }
     }
 
-    fun unregister() {
+    fun unregister(context: Context) {
         if (!registered) return
-        try {
-            cm.unregisterNetworkCallback(callback)
-        } catch (_: Exception) { }
-        registered = false
-        Log.i(TAG, "NetworkCallback unregistered")
-    }
-
-    companion object {
-        private const val TAG = "ScreentimeConnectivity"
+        synchronized(this) {
+            if (!registered) return
+            try {
+                val cm = context.applicationContext
+                    .getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                callback?.let { cm.unregisterNetworkCallback(it) }
+            } catch (_: Exception) { }
+            callback = null
+            registered = false
+            Log.i(TAG, "NetworkCallback unregistered")
+        }
     }
 }
