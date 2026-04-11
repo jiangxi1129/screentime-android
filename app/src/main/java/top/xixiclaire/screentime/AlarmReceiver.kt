@@ -85,26 +85,49 @@ class AlarmReceiver : BroadcastReceiver() {
         return ok
     }
 
-    /** Query foreground app using a wider window (last 60s) for reliability. */
+    /** Query the current foreground app by finding the last RESUMED without a
+     *  subsequent PAUSED. Looks at the last 6 hours so apps used continuously
+     *  for a long time are still detected. */
     private fun getForegroundAppWide(context: Context): String? {
         try {
             val usm = context.getSystemService(Context.USAGE_STATS_SERVICE)
                 as android.app.usage.UsageStatsManager
             val now = System.currentTimeMillis()
-            val events = usm.queryEvents(now - 60_000, now) ?: return null
+            val events = usm.queryEvents(now - 6 * 3600_000L, now) ?: return null
             val ev = android.app.usage.UsageEvents.Event()
-            var lastApp: String? = null
+            var lastResumedPkg: String? = null
+            var lastResumedTs = 0L
+            // Track per-package last RESUMED and PAUSED timestamps
+            val lastResumed = HashMap<String, Long>()
+            val lastPaused = HashMap<String, Long>()
             while (events.hasNextEvent()) {
                 events.getNextEvent(ev)
-                if (ev.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
-                    lastApp = ev.packageName
+                val pkg = ev.packageName ?: continue
+                when (ev.eventType) {
+                    android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
+                        lastResumed[pkg] = ev.timeStamp
+                        if (ev.timeStamp >= lastResumedTs) {
+                            lastResumedTs = ev.timeStamp
+                            lastResumedPkg = pkg
+                        }
+                    }
+                    android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                    android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED -> {
+                        lastPaused[pkg] = ev.timeStamp
+                    }
                 }
             }
-            if (lastApp != null) {
-                return try {
-                    val ai = context.packageManager.getApplicationInfo(lastApp, 0)
-                    context.packageManager.getApplicationLabel(ai).toString()
-                } catch (_: Exception) { lastApp }
+            // Current foreground = pkg whose lastResumed > lastPaused
+            // Prefer the most recently RESUMED package
+            if (lastResumedPkg != null) {
+                val resumedTs = lastResumed[lastResumedPkg] ?: 0L
+                val pausedTs = lastPaused[lastResumedPkg] ?: 0L
+                if (resumedTs > pausedTs) {
+                    return try {
+                        val ai = context.packageManager.getApplicationInfo(lastResumedPkg!!, 0)
+                        context.packageManager.getApplicationLabel(ai).toString()
+                    } catch (_: Exception) { lastResumedPkg }
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "getForegroundAppWide: ${e.message}")

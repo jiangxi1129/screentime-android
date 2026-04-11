@@ -35,30 +35,46 @@ class ScreenReceiver : BroadcastReceiver() {
         private const val TAG = "ScreentimeScreenRx"
 
         /**
-         * Get the most recent foreground app by querying usage events
-         * in the last 5 seconds.
+         * Get the current foreground app by finding the last RESUMED without
+         * a subsequent PAUSED. Looks at the last 6 hours so apps used
+         * continuously for hours are still detected.
          */
         fun getForegroundApp(context: Context): String? {
             if (!MainActivity.hasUsageAccess(context)) return null
             try {
                 val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
                 val now = System.currentTimeMillis()
-                val events = usm.queryEvents(now - 30_000, now) ?: return null
+                val events = usm.queryEvents(now - 6 * 3600_000L, now) ?: return null
                 val ev = UsageEvents.Event()
-                var lastApp: String? = null
+                var lastResumedPkg: String? = null
+                var lastResumedTs = 0L
+                val lastResumed = HashMap<String, Long>()
+                val lastPaused = HashMap<String, Long>()
                 while (events.hasNextEvent()) {
                     events.getNextEvent(ev)
-                    if (ev.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-                        lastApp = ev.packageName
+                    val pkg = ev.packageName ?: continue
+                    when (ev.eventType) {
+                        UsageEvents.Event.ACTIVITY_RESUMED -> {
+                            lastResumed[pkg] = ev.timeStamp
+                            if (ev.timeStamp >= lastResumedTs) {
+                                lastResumedTs = ev.timeStamp
+                                lastResumedPkg = pkg
+                            }
+                        }
+                        UsageEvents.Event.ACTIVITY_PAUSED,
+                        UsageEvents.Event.ACTIVITY_STOPPED -> {
+                            lastPaused[pkg] = ev.timeStamp
+                        }
                     }
                 }
-                if (lastApp != null) {
-                    // Convert package to friendly label
-                    return try {
-                        val ai = context.packageManager.getApplicationInfo(lastApp, 0)
-                        context.packageManager.getApplicationLabel(ai).toString()
-                    } catch (_: Exception) {
-                        lastApp
+                if (lastResumedPkg != null) {
+                    val resumedTs = lastResumed[lastResumedPkg] ?: 0L
+                    val pausedTs = lastPaused[lastResumedPkg] ?: 0L
+                    if (resumedTs > pausedTs) {
+                        return try {
+                            val ai = context.packageManager.getApplicationInfo(lastResumedPkg!!, 0)
+                            context.packageManager.getApplicationLabel(ai).toString()
+                        } catch (_: Exception) { lastResumedPkg }
                     }
                 }
             } catch (e: Exception) {
