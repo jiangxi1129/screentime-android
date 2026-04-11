@@ -90,6 +90,24 @@ object UsageReader {
             }
         }
 
+        // Cross-check with queryAndAggregateUsageStats for packages that DID fire
+        // RESUMED events. This catches time spent in voice calls / floating windows
+        // that don't fire standard activity lifecycle events (e.g. WeChat).
+        // We only trust this for packages we've already seen — protects against
+        // system components with inflated stats but no real foreground time.
+        try {
+            val aggregated = usm.queryAndAggregateUsageStats(start, end)
+            for ((pkg, statsTotal) in totals.toMap()) {
+                val stats = aggregated[pkg] ?: continue
+                val statsForeground = stats.totalTimeInForeground
+                if (statsForeground > statsTotal) {
+                    totals[pkg] = statsForeground
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback silently — queryAndAggregateUsageStats can fail on some devices
+        }
+
         val result = ArrayList<AppUsage>()
         for ((pkg, ms) in totals) {
             val sec = ms / 1000
