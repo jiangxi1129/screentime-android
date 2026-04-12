@@ -23,32 +23,44 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         Log.i(TAG, "alarm fired action=${intent.action}")
-        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "screentime:alarm")
-        var reportOk = false
-        try {
-            wl.acquire(30_000L)
-            reportOk = doWork(context)
-        } catch (t: Throwable) {
-            Log.e(TAG, "work failed", t)
-        } finally {
-            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            if (reportOk) {
-                prefs.edit().putInt(KEY_CONSECUTIVE_FAILS, 0).apply()
-                scheduleNext(context, INTERVAL_MS)
-            } else {
-                val fails = prefs.getInt(KEY_CONSECUTIVE_FAILS, 0) + 1
-                prefs.edit().putInt(KEY_CONSECUTIVE_FAILS, fails).apply()
-                val retryMs = when {
-                    fails <= 3  -> RETRY_FAST_MS   // 1 min — just disconnected
-                    fails <= 6  -> INTERVAL_MS      // 5 min — normal pace
-                    else        -> RETRY_SLOW_MS    // 10 min — long offline, save battery
+        // CRITICAL: schedule the next alarm IMMEDIATELY before doing any work.
+        // If the receiver is killed mid-execution (vivo, doze, etc.), the alarm
+        // chain still survives. The work itself runs on a background thread via
+        // goAsync() so we don't block onReceive's ~10-second budget.
+        scheduleNext(context, INTERVAL_MS)
+
+        val pendingResult = goAsync()
+        Thread {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "screentime:alarm")
+            var reportOk = false
+            try {
+                wl.acquire(60_000L)
+                reportOk = doWork(context)
+            } catch (t: Throwable) {
+                Log.e(TAG, "work failed", t)
+            } finally {
+                // Adjust next alarm based on success — overwrites the
+                // pre-scheduled one with appropriate retry interval
+                val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                if (reportOk) {
+                    prefs.edit().putInt(KEY_CONSECUTIVE_FAILS, 0).apply()
+                    // Already scheduled at INTERVAL_MS above — keep it
+                } else {
+                    val fails = prefs.getInt(KEY_CONSECUTIVE_FAILS, 0) + 1
+                    prefs.edit().putInt(KEY_CONSECUTIVE_FAILS, fails).apply()
+                    val retryMs = when {
+                        fails <= 3  -> RETRY_FAST_MS   // 1 min — just disconnected
+                        fails <= 6  -> INTERVAL_MS      // 5 min — normal pace
+                        else        -> RETRY_SLOW_MS    // 10 min — long offline
+                    }
+                    Log.i(TAG, "fail #$fails, next retry in ${retryMs / 1000}s")
+                    scheduleNext(context, retryMs)
                 }
-                Log.i(TAG, "fail #$fails, next retry in ${retryMs / 1000}s")
-                scheduleNext(context, retryMs)
+                if (wl.isHeld) wl.release()
+                pendingResult.finish()
             }
-            if (wl.isHeld) wl.release()
-        }
+        }.start()
     }
 
     /** @return true if report was sent successfully */
