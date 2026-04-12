@@ -27,6 +27,14 @@ object UsageReader {
 
     data class AppUsage(val pkg: String, val label: String, val totalSec: Long)
 
+    /** Launchers get a PAUSED on every unlock but aren't "user apps".
+     *  Don't apply cross-midnight fallback to them. */
+    private fun isLauncher(pkg: String): Boolean =
+        pkg.contains("launcher", ignoreCase = true) ||
+        pkg == "com.bbk.launcher2" ||      // vivo
+        pkg == "com.miui.home" ||           // xiaomi
+        pkg == "com.huawei.android.launcher" // huawei
+
     fun collect(ctx: Context): List<AppUsage> {
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val pm = ctx.packageManager
@@ -66,8 +74,10 @@ object UsageReader {
                     val from = foregroundSince.remove(pkg)
                     if (from != null && ts > from) {
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - from)
-                    } else if (from == null && firstSeen) {
-                        // Cross-midnight: app was in foreground since before 00:00
+                    } else if (from == null && firstSeen && !isLauncher(pkg)) {
+                        // Cross-midnight: app was in foreground since before 00:00.
+                        // Exclude launchers — they always get a PAUSED on first
+                        // unlock but weren't truly "in use" since midnight.
                         totals[pkg] = (totals[pkg] ?: 0L) + (ts - start)
                     }
                 }
