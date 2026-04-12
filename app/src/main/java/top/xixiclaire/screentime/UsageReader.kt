@@ -90,30 +90,9 @@ object UsageReader {
             }
         }
 
-        // Cross-check with queryAndAggregateUsageStats for packages that DID fire
-        // RESUMED events. This catches time spent in voice calls / floating windows
-        // that don't fire standard activity lifecycle events (e.g. WeChat).
-        //
-        // Sanity check: queryAndAggregateUsageStats returns bucket values that may
-        // span across the [start, end] window (the API does NOT clip totalTime to
-        // the window). If the value is bigger than the elapsed time today, the
-        // bucket clearly includes yesterday — skip and trust events instead.
-        try {
-            val aggregated = usm.queryAndAggregateUsageStats(start, end)
-            val elapsedMs = end - start
-            // Allow tiny slack (1.05x) for system clock skew
-            val maxAllowedMs = (elapsedMs * 1.05).toLong()
-            for ((pkg, statsTotal) in totals.toMap()) {
-                val stats = aggregated[pkg] ?: continue
-                val statsForeground = stats.totalTimeInForeground
-                if (statsForeground > maxAllowedMs) continue  // bucket spans yesterday
-                if (statsForeground > statsTotal) {
-                    totals[pkg] = statsForeground
-                }
-            }
-        } catch (e: Exception) {
-            // Fallback silently — queryAndAggregateUsageStats can fail on some devices
-        }
+        // NOTE: queryAndAggregateUsageStats was removed in v2.9.
+        // It returns bucket-level totals that include cross-bucket overlap,
+        // causing 2-3x inflation. Events-based counting is the only reliable method.
 
         val result = ArrayList<AppUsage>()
         for ((pkg, ms) in totals) {
