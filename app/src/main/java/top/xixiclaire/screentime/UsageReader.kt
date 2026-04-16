@@ -38,6 +38,7 @@ object UsageReader {
     fun collect(ctx: Context): List<AppUsage> {
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val pm = ctx.packageManager
+        val selfPkg = ctx.packageName
 
         val cal = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -57,6 +58,7 @@ object UsageReader {
         while (events.hasNextEvent()) {
             events.getNextEvent(ev)
             val pkg = ev.packageName ?: continue
+            if (pkg == selfPkg) continue  // don't count ourselves
             val ts = ev.timeStamp
             val firstSeen = pkg !in seen
             seen.add(pkg)

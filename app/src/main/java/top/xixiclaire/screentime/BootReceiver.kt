@@ -19,6 +19,7 @@ class BootReceiver : BroadcastReceiver() {
                 if (MainActivity.hasUsageAccess(context)) {
                     AlarmReceiver.scheduleNext(context)
                     ConnectivityReceiver.ensureRegistered(context)
+                    HeartbeatService.start(context)
                 }
             }
         }

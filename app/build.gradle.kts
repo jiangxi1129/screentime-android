@@ -11,8 +11,8 @@ android {
         applicationId = "top.xixiclaire.screentime"
         minSdk = 26
         targetSdk = 34
-        versionCode = 22
-        versionName = "2.9.1"
+        versionCode = 23
+        versionName = "2.10"
     }
 
     buildTypes {

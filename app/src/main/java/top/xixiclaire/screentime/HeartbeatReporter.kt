@@ -31,8 +31,8 @@ object HeartbeatReporter {
             try {
                 val conn = URL(endpoint).openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
-                conn.connectTimeout = 5_000
-                conn.readTimeout = 5_000
+                conn.connectTimeout = 8_000
+                conn.readTimeout = 12_000
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 if (endpoint.contains("129.226.82.136")) {

@@ -43,6 +43,7 @@ class ScreenReceiver : BroadcastReceiver() {
             if (!MainActivity.hasUsageAccess(context)) return null
             try {
                 val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+                val selfPkg = context.packageName
                 val now = System.currentTimeMillis()
                 val events = usm.queryEvents(now - 6 * 3600_000L, now) ?: return null
                 val ev = UsageEvents.Event()
@@ -53,6 +54,7 @@ class ScreenReceiver : BroadcastReceiver() {
                 while (events.hasNextEvent()) {
                     events.getNextEvent(ev)
                     val pkg = ev.packageName ?: continue
+                    if (pkg == selfPkg) continue  // never report ourselves
                     when (ev.eventType) {
                         UsageEvents.Event.ACTIVITY_RESUMED -> {
                             lastResumed[pkg] = ev.timeStamp

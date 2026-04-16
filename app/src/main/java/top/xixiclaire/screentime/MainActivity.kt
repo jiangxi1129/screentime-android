@@ -30,6 +30,8 @@ class MainActivity : AppCompatActivity() {
             buildUi()
             registerScreenReceiver()
             ConnectivityReceiver.ensureRegistered(applicationContext)
+            // Start foreground heartbeat service (vivo-resistant)
+            HeartbeatService.start(applicationContext)
         } catch (t: Throwable) {
             // Last-resort visible error so we don't silently crash
             val tv = TextView(this).apply {
@@ -130,7 +132,17 @@ class MainActivity : AppCompatActivity() {
             text = "5. 停止定时上报"
             setOnClickListener {
                 AlarmReceiver.cancel(applicationContext)
-                refresh(extra = "已停止")
+                HeartbeatService.stop(applicationContext)
+                refresh(extra = "已停止（含前台心跳）")
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "6. 重启前台心跳服务"
+            setOnClickListener {
+                HeartbeatService.stop(applicationContext)
+                HeartbeatService.start(applicationContext)
+                refresh(extra = "✅ 前台心跳已重启（每 60 秒一次）")
             }
         })
 
@@ -159,6 +171,7 @@ class MainActivity : AppCompatActivity() {
         if (lastMs > 0 && ageMs > 10 * 60 * 1000) {
             AlarmReceiver.scheduleNext(applicationContext)
             ConnectivityReceiver.ensureRegistered(applicationContext)
+            HeartbeatService.start(applicationContext)
             Thread {
                 try {
                     val apps = UsageReader.collect(applicationContext)

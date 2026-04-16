@@ -99,11 +99,15 @@ class AlarmReceiver : BroadcastReceiver() {
 
     /** Query the current foreground app by finding the last RESUMED without a
      *  subsequent PAUSED. Looks at the last 6 hours so apps used continuously
-     *  for a long time are still detected. */
+     *  for a long time are still detected.
+     *
+     *  Ignores the Screentime app's own package so that opening the app to
+     *  check status doesn't pollute current_app. */
     private fun getForegroundAppWide(context: Context): String? {
         try {
             val usm = context.getSystemService(Context.USAGE_STATS_SERVICE)
                 as android.app.usage.UsageStatsManager
+            val selfPkg = context.packageName
             val now = System.currentTimeMillis()
             val events = usm.queryEvents(now - 6 * 3600_000L, now) ?: return null
             val ev = android.app.usage.UsageEvents.Event()
@@ -115,6 +119,7 @@ class AlarmReceiver : BroadcastReceiver() {
             while (events.hasNextEvent()) {
                 events.getNextEvent(ev)
                 val pkg = ev.packageName ?: continue
+                if (pkg == selfPkg) continue  // never report ourselves
                 when (ev.eventType) {
                     android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
                         lastResumed[pkg] = ev.timeStamp
@@ -157,7 +162,7 @@ class AlarmReceiver : BroadcastReceiver() {
         const val ACTION_REPORT = "top.xixiclaire.screentime.REPORT"
         const val KEY_CONSECUTIVE_FAILS = "consecutive_fails"
         private const val REQUEST_CODE = 9101
-        const val INTERVAL_MS  = 5L * 60 * 1000   // 5 min — normal
+        const val INTERVAL_MS  = 2L * 60 * 1000   // 2 min — normal
         private const val RETRY_FAST_MS = 60L * 1000   // 1 min — just went offline
         private const val RETRY_SLOW_MS = 10L * 60 * 1000 // 10 min — long offline
 
