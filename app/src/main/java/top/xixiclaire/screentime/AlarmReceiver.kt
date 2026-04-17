@@ -84,6 +84,13 @@ class AlarmReceiver : BroadcastReceiver() {
             .apply()
         Log.i(TAG, "report ${if (ok) "ok" else "fail"} (${apps.size} apps) err=$err")
 
+        // Check for APK update (self-rate-limited to once every 6h)
+        try {
+            UpdateChecker.checkAndMaybeNotify(context)
+        } catch (e: Exception) {
+            Log.w(TAG, "update check error: ${e.message}")
+        }
+
         // Send heartbeat as fallback (in case ScreenReceiver was killed by vivo)
         try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager

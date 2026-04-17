@@ -32,6 +32,8 @@ class MainActivity : AppCompatActivity() {
             ConnectivityReceiver.ensureRegistered(applicationContext)
             // Start foreground heartbeat service (vivo-resistant)
             HeartbeatService.start(applicationContext)
+            // Non-blocking: trigger an update check shortly after launch
+            UpdateChecker.checkAndMaybeNotify(applicationContext)
         } catch (t: Throwable) {
             // Last-resort visible error so we don't silently crash
             val tv = TextView(this).apply {
@@ -143,6 +145,14 @@ class MainActivity : AppCompatActivity() {
                 HeartbeatService.stop(applicationContext)
                 HeartbeatService.start(applicationContext)
                 refresh(extra = "✅ 前台心跳已重启（每 60 秒一次）")
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "7. 检查新版本"
+            setOnClickListener {
+                UpdateChecker.checkAndMaybeNotify(applicationContext, force = true)
+                refresh(extra = "🔍 检查中…有新版会从通知栏提示你安装")
             }
         })
 

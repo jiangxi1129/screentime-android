@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Exposes the app-private cache dir so we can hand the downloaded APK
+         URI to the system installer via FileProvider (required on API 24+). -->
+    <cache-path name="updates" path="updates/" />
+</paths>
