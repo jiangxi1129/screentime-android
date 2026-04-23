@@ -1,9 +1,11 @@
 package top.xixiclaire.screentime
 
+import android.Manifest
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -14,6 +16,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -156,6 +160,83 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        root.addView(spacer(8))
+
+        val locTitle = TextView(this).apply {
+            text = "— 位置上报（给小澄看 📍）—"
+            textSize = 13f
+            gravity = Gravity.CENTER
+        }
+        root.addView(locTitle)
+
+        root.addView(Button(this).apply {
+            text = "8. 授权位置权限"
+            setOnClickListener {
+                ActivityCompat.requestPermissions(
+                    this@MainActivity,
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                    REQ_LOCATION,
+                )
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "9. 授权「始终」后台定位 (vivo必做)"
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    ActivityCompat.requestPermissions(
+                        this@MainActivity,
+                        arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                        REQ_BG_LOCATION,
+                    )
+                } else {
+                    startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .setData(Uri.parse("package:$packageName"))
+                    )
+                }
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "10. 这里是家 📍"
+            setOnClickListener {
+                Thread {
+                    val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "mark_home")
+                    runOnUiThread {
+                        refresh(extra = if (ok) "✅ 已把这里标记为家" else "❌ 标记失败（检查权限/GPS）")
+                    }
+                }.start()
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "11. 这里是公司 🏢"
+            setOnClickListener {
+                Thread {
+                    val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "mark_work")
+                    runOnUiThread {
+                        refresh(extra = if (ok) "✅ 已把这里标记为公司" else "❌ 标记失败（检查权限/GPS）")
+                    }
+                }.start()
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "12. 立刻上报一次位置 (测试)"
+            setOnClickListener {
+                Thread {
+                    val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "manual")
+                    runOnUiThread {
+                        refresh(extra = if (ok) "✅ 位置已上报" else "❌ 失败（权限？GPS？）")
+                    }
+                }.start()
+            }
+        })
+
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
 
@@ -255,6 +336,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val REQ_LOCATION = 1001
+        private const val REQ_BG_LOCATION = 1002
+
         fun hasUsageAccess(ctx: Context): Boolean {
             val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
             val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

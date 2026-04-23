@@ -47,12 +47,25 @@ class HeartbeatService : Service() {
     }
 
     private fun loop() {
+        var tick = 0
         while (running.get()) {
             try {
                 sendOne()
             } catch (t: Throwable) {
                 Log.w(TAG, "heartbeat iter failed: ${t.message}")
             }
+            // Location lives on a coarser cadence — every LOCATION_EVERY_N_TICKS
+            // heartbeats (~5 min) to keep GPS duty-cycle low. Runs on this
+            // worker thread so it does not interfere with the heartbeat cadence
+            // if it takes its 10-s fetch timeout.
+            if (tick % LOCATION_EVERY_N_TICKS == 0) {
+                try {
+                    LocationReporter.fetchAndSend(this, trigger = "heartbeat")
+                } catch (t: Throwable) {
+                    Log.w(TAG, "location iter failed: ${t.message}")
+                }
+            }
+            tick++
             try {
                 Thread.sleep(HEARTBEAT_INTERVAL_MS)
             } catch (_: InterruptedException) {
@@ -110,6 +123,7 @@ class HeartbeatService : Service() {
         const val CHANNEL_ID = "screentime_heartbeat"
         const val NOTIF_ID = 9102
         const val HEARTBEAT_INTERVAL_MS = 60_000L  // 1 min
+        const val LOCATION_EVERY_N_TICKS = 5       // 5 min between location fetches
 
         fun start(ctx: Context) {
             val intent = Intent(ctx, HeartbeatService::class.java)
