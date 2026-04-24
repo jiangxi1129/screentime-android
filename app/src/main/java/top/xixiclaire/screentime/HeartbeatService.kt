@@ -1,5 +1,6 @@
 package top.xixiclaire.screentime
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,10 +8,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -32,11 +36,45 @@ class HeartbeatService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (running.compareAndSet(false, true)) {
-            startForeground(NOTIF_ID, buildNotification())
+            startForegroundCompat()
             worker = Thread(::loop, "screentime-heartbeat").apply { isDaemon = true; start() }
             Log.i(TAG, "service started")
         }
         return START_STICKY
+    }
+
+    /**
+     * Start foreground with a service type that matches what we *actually*
+     * have permission for. Android 14 (API 34) throws SecurityException if
+     * the declared type includes `location` but ACCESS_FINE_LOCATION is not
+     * granted — which is exactly what happens on first launch before the
+     * user taps "授权位置权限". So we only claim the location type when the
+     * runtime permission is already granted.
+     */
+    private fun startForegroundCompat() {
+        val notif = buildNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            val hasFine = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasFine || hasCoarse) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
+            try {
+                startForeground(NOTIF_ID, notif, type)
+            } catch (e: Exception) {
+                // Last resort: fall back to type-less call so the heartbeat at
+                // least survives even if the compat call somehow rejects us
+                Log.w(TAG, "typed startForeground failed (${e.message}); falling back")
+                startForeground(NOTIF_ID, notif)
+            }
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
     }
 
     override fun onDestroy() {

@@ -253,6 +253,32 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Throwable) { }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        val granted = grantResults.isNotEmpty() &&
+            grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+        when (requestCode) {
+            REQ_LOCATION -> {
+                // Location perm just changed — HeartbeatService started earlier
+                // without the `location` foreground-service type. Restart it
+                // so the next startForeground() claims LOCATION type and
+                // background GPS becomes legal.
+                try {
+                    HeartbeatService.stop(applicationContext)
+                    HeartbeatService.start(applicationContext)
+                } catch (_: Throwable) { }
+                refresh(extra = if (granted) "✅ 位置权限已授予，心跳已重启" else "❌ 位置权限被拒")
+            }
+            REQ_BG_LOCATION -> {
+                refresh(extra = if (granted) "✅ 后台定位已授予" else "⚠️  系统可能拒绝，去设置里手动改「始终允许」")
+            }
+        }
+    }
+
     private fun autoRecoverAlarm() {
         if (!hasUsageAccess(this)) return
         val prefs = getSharedPreferences(AlarmReceiver.PREFS, Context.MODE_PRIVATE)
