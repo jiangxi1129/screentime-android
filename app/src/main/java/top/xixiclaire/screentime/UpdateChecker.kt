@@ -40,7 +40,7 @@ object UpdateChecker {
 
     const val CHANNEL_ID = "screentime_update"
     private const val NOTIF_ID = 9103
-    private const val CHECK_INTERVAL_MS = 6L * 3600 * 1000  // 6h
+    private const val CHECK_INTERVAL_MS = 1L * 3600 * 1000  // 1h (was 6h)
 
     /** Entry point: call from AlarmReceiver / MainActivity. Safe to call often. */
     fun checkAndMaybeNotify(ctx: Context, force: Boolean = false) {

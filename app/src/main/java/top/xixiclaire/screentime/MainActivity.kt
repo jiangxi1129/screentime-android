@@ -34,6 +34,10 @@ class MainActivity : AppCompatActivity() {
             buildUi()
             registerScreenReceiver()
             ConnectivityReceiver.ensureRegistered(applicationContext)
+            // Android 13+ requires runtime POST_NOTIFICATIONS or update-
+            // available notifications get silently dropped — that was the
+            // reason build-27/28 update prompts never reached the user.
+            requestNotificationPermissionIfNeeded()
             // Start foreground heartbeat service (vivo-resistant)
             HeartbeatService.start(applicationContext)
             // Non-blocking: trigger an update check shortly after launch
@@ -202,19 +206,31 @@ class MainActivity : AppCompatActivity() {
         })
 
         root.addView(Button(this).apply {
-            text = "10. 这里是家 📍"
+            text = "10. 这里是公寓 (周中) 🏠"
             setOnClickListener {
                 Thread {
-                    val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "mark_home")
+                    val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "mark_home_apartment")
                     runOnUiThread {
-                        refresh(extra = if (ok) "✅ 已把这里标记为家" else "❌ 标记失败（检查权限/GPS）")
+                        refresh(extra = if (ok) "✅ 已把这里标记为公寓" else "❌ 标记失败（检查权限/GPS）")
                     }
                 }.start()
             }
         })
 
         root.addView(Button(this).apply {
-            text = "11. 这里是公司 🏢"
+            text = "11. 这里是老家 (周末) 🏡"
+            setOnClickListener {
+                Thread {
+                    val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "mark_home_parents")
+                    runOnUiThread {
+                        refresh(extra = if (ok) "✅ 已把这里标记为老家" else "❌ 标记失败（检查权限/GPS）")
+                    }
+                }.start()
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "12. 这里是公司 🏢"
             setOnClickListener {
                 Thread {
                     val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "mark_work")
@@ -226,7 +242,7 @@ class MainActivity : AppCompatActivity() {
         })
 
         root.addView(Button(this).apply {
-            text = "12. 立刻上报一次位置 (测试)"
+            text = "13. 立刻上报一次位置 (测试)"
             setOnClickListener {
                 Thread {
                     val ok = LocationReporter.fetchAndSend(applicationContext, trigger = "manual")
@@ -324,6 +340,20 @@ class MainActivity : AppCompatActivity() {
         registerReceiver(screenReceiver, filter)
     }
 
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQ_NOTIFICATIONS,
+            )
+        }
+    }
+
     private fun spacer(dp: Int): TextView = TextView(this).apply {
         text = ""
         textSize = dp.toFloat()
@@ -364,6 +394,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val REQ_LOCATION = 1001
         private const val REQ_BG_LOCATION = 1002
+        private const val REQ_NOTIFICATIONS = 1003
 
         fun hasUsageAccess(ctx: Context): Boolean {
             val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
