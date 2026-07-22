@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val ciVersionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull()
+
 android {
     namespace = "top.xixiclaire.screentime"
     compileSdk = 34
@@ -11,7 +13,7 @@ android {
         applicationId = "top.xixiclaire.screentime"
         minSdk = 26
         targetSdk = 34
-        versionCode = 27
+        versionCode = ciVersionCode ?: 29
         versionName = "2.13"
     }
 
