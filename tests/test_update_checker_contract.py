@@ -33,6 +33,10 @@ class UpdateCheckerContractTest(unittest.TestCase):
 
         self.assertNotIn("putLong(KEY_LAST_CHECK", tail)
 
+    def test_force_bypasses_rate_limit(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("if (!force && now - last < CHECK_INTERVAL_MS)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,6 +16,7 @@ class VersionClockContractTest(unittest.TestCase):
         self.assertIn('environmentVariable("GITHUB_RUN_NUMBER")', gradle)
         self.assertRegex(gradle, r"versionCode\s*=\s*ciVersionCode\s*\?:\s*\d+")
         self.assertIn("tag_name: build-${{ github.run_number }}", workflow)
+        self.assertIn("screentime-${{ github.run_number }}.apk", workflow)
 
     def test_update_checker_reads_the_same_release_clock(self):
         checker = (
