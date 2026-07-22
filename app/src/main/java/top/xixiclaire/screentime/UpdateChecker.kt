@@ -67,8 +67,8 @@ object UpdateChecker {
                     val cached = apkFile(ctx, info.versionCode)
                     if (cached.exists() && cached.length() > 0) {
                         showNotification(ctx, cached, info)
+                        return@Thread
                     }
-                    return@Thread
                 }
 
                 val apk = downloadApk(ctx, info) ?: return@Thread
