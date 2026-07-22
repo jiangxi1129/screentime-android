@@ -25,8 +25,8 @@ import java.net.URL
  * This is the shortest legal flow: one extra tap on a notification, one
  * tap on the system install prompt.
  *
- * Rate-limited to once every CHECK_INTERVAL_MS (6h) via SharedPreferences,
- * so it's safe to call from every AlarmReceiver tick.
+ * Check attempts are rate-limited via SharedPreferences, so a failed GitHub
+ * request is not retried on every AlarmReceiver tick.
  */
 object UpdateChecker {
 
@@ -46,14 +46,15 @@ object UpdateChecker {
     fun checkAndMaybeNotify(ctx: Context, force: Boolean = false) {
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val last = prefs.getLong(KEY_LAST_CHECK, 0L)
-        if (!force && System.currentTimeMillis() - last < CHECK_INTERVAL_MS) {
+        val now = System.currentTimeMillis()
+        if (!force && now - last < CHECK_INTERVAL_MS) {
             return
         }
+        prefs.edit().putLong(KEY_LAST_CHECK, now).apply()
 
         Thread {
             try {
                 val info = fetchLatest() ?: return@Thread
-                prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
 
                 val currentVc = currentVersionCode(ctx)
                 Log.i(TAG, "latest=${info.versionCode} current=$currentVc name=${info.tagName}")
